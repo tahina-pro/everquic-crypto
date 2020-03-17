@@ -1,6 +1,7 @@
 module QUIC.Impl.Base
 open QUIC.Spec.Base
 
+module SecretIntegers = Lib.IntTypes
 module B = LowStar.Buffer
 module U8 = FStar.UInt8
 module U64 = FStar.UInt64
@@ -14,27 +15,31 @@ module Spec = QUIC.Spec.Base
 /// their lengths.
 
 (* NOTE: in the following header type, payload_length contains the
-length of the actual payload, NOT including the length of the packet
+length of the actual payload AND including the length of the packet
 number. *)
 
 (* NOTE: the header no longer contains the packet number, which is
 part of the state, so that the client no longer needs to take care of
 it *)
 
+inline_for_extraction
+noextract
+type packet_number_length_t : Type0 = (x: SecretIntegers.uint32 { 1 <= SecretIntegers.v x /\ SecretIntegers.v x <= 4 })
+
 noeq type long_header_specifics =
   | BInitial:
-    payload_length: uint62_t ->
-    (packet_number_length: packet_number_length_t { U64.v payload_length + U32.v packet_number_length < pow2 62 }) ->
+    payload_and_packet_number_length: uint62_t ->
+    (packet_number_length: packet_number_length_t { SecretIntegers.v packet_number_length <= U64.v payload_and_packet_number_length /\ U64.v payload_and_packet_number_length < pow2 62 }) ->
     token: B.buffer U8.t -> (* I reordered those so that the extracted code for this type is a tagged union with common prefixes *)
     token_length: U32.t { let v = U32.v token_length in v == B.length token /\ 0 <= v /\ v <= token_max_len  } ->
     long_header_specifics
   | BZeroRTT:
-    payload_length: uint62_t ->
-    (packet_number_length: packet_number_length_t { U64.v payload_length + U32.v packet_number_length < pow2 62 }) ->
+    payload_and_packet_number_length: uint62_t ->
+    (packet_number_length: packet_number_length_t { SecretIntegers.v packet_number_length <= U64.v payload_and_packet_number_length /\ U64.v payload_and_packet_number_length < pow2 62 }) ->
     long_header_specifics
   | BHandshake:
-    payload_length: uint62_t ->
-    (packet_number_length: packet_number_length_t { U64.v payload_length + U32.v packet_number_length < pow2 62 }) ->
+    payload_and_packet_number_length: uint62_t ->
+    (packet_number_length: packet_number_length_t { SecretIntegers.v packet_number_length <= U64.v payload_and_packet_number_length /\ U64.v payload_and_packet_number_length < pow2 62 }) ->
     long_header_specifics
   | BRetry:
     unused: bitfield 4 ->
@@ -100,14 +105,17 @@ let has_payload_length
 : Tot bool
 = BLong? h && not (BRetry? (BLong?.spec h))
 
+inline_for_extraction
+let suint62_t = (x: SecretIntegers.uint64 { SecretIntegers.v x < U64.v uint62_bound })
+
 // inline_for_extraction
 let payload_length
   (h: header { has_payload_length h })
-: Tot uint62_t
+: Tot suint62_t
 = match BLong?.spec h with
-  | BInitial pl _ _ _ -> pl
-  | BZeroRTT pl _ -> pl
-  | BHandshake pl _ -> pl
+  | BInitial pl pnl _ _ -> SecretIntegers.to_u64 pl `SecretIntegers.sub` SecretIntegers.to_u64 pnl
+  | BZeroRTT pl pnl -> SecretIntegers.to_u64 pl `SecretIntegers.sub` SecretIntegers.to_u64 pnl
+  | BHandshake pl pnl -> SecretIntegers.to_u64 pl `SecretIntegers.sub` SecretIntegers.to_u64 pnl
 
 module HS = FStar.HyperStack
 
@@ -146,22 +154,32 @@ let header_live_loc_not_unused_in_footprint (h: header) (m: HS.mem) : Lemma
 
 module FB = FStar.Bytes
 
+let u32_of_pnl (pnl: packet_number_length_t) : GTot Spec.packet_number_length_t =
+  U32.uint_to_t (SecretIntegers.v pnl)
+
+let u62_of_su62 (x: suint62_t) : GTot uint62_t =
+  U64.uint_to_t (SecretIntegers.v x)
+
+#push-options "--z3rlimit 16"
+
 let g_header (h: header) (m: HS.mem) (packet_number: uint62_t) : GTot Spec.header =
   match h with
   | BShort spin phase cid cid_len packet_number_length ->
-    MShort spin phase (FB.hide (B.as_seq m cid)) packet_number_length packet_number
+    MShort spin phase (FB.hide (B.as_seq m cid)) (u32_of_pnl packet_number_length) packet_number
   | BLong version dcid dcil scid scil spec ->
     MLong version (FB.hide (B.as_seq m dcid)) (FB.hide (B.as_seq m scid))
       begin match spec with
-      | BInitial payload_length packet_number_length token token_length ->
-        MInitial (FB.hide (B.as_seq m token)) payload_length packet_number_length packet_number
-      | BZeroRTT payload_length packet_number_length ->
-        MZeroRTT payload_length packet_number_length packet_number
-      | BHandshake payload_length packet_number_length ->
-        MHandshake payload_length packet_number_length packet_number
+      | BInitial payload_and_pn_length packet_number_length token token_length ->
+        MInitial (FB.hide (B.as_seq m token)) (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (u32_of_pnl packet_number_length) packet_number
+      | BZeroRTT payload_and_pn_length packet_number_length ->
+        MZeroRTT (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (u32_of_pnl packet_number_length) packet_number
+      | BHandshake payload_and_pn_length packet_number_length ->
+        MHandshake (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (u32_of_pnl packet_number_length) packet_number
       | BRetry unused odcid odcil ->
         MRetry unused (FB.hide (B.as_seq m odcid))
       end
+
+#pop-options
 
 let frame_header_live
   (h: header)
@@ -209,22 +227,25 @@ let varint_len
 
 module Cast = FStar.Int.Cast
 
+#push-options "--z3rlimit 32"
+
 let header_len
   (h: header)
-: Tot U32.t
+: Tot SecretIntegers.uint32
 = match h with
   | BShort spin phase cid cid_len packet_number_length ->
-    1ul `U32.add` cid_len `U32.add` packet_number_length
+    SecretIntegers.to_u32 (1ul `U32.add` cid_len) `SecretIntegers.add` packet_number_length
   | BLong version dcid dcil scid scil spec ->
-    7ul `U32.add` dcil `U32.add` scil `U32.add`
+    SecretIntegers.to_u32 (7ul `U32.add` dcil `U32.add` scil) `SecretIntegers.add`
     begin match spec with
-    | BInitial payload_length packet_number_length token token_length ->
-      varint_len (Cast.uint32_to_uint64 token_length) `U32.add` token_length `U32.add` varint_len (payload_length `U64.add` Cast.uint32_to_uint64 packet_number_length) `U32.add` packet_number_length
-    | BZeroRTT payload_length packet_number_length ->
-      varint_len (payload_length `U64.add` Cast.uint32_to_uint64 packet_number_length) `U32.add` packet_number_length
-    | BHandshake payload_length packet_number_length ->
-      varint_len (payload_length `U64.add` Cast.uint32_to_uint64 packet_number_length) `U32.add` packet_number_length
+    | BInitial payload_and_pn_length packet_number_length token token_length ->
+      SecretIntegers.to_u32 (varint_len (Cast.uint32_to_uint64 token_length) `U32.add` token_length `U32.add` varint_len payload_and_pn_length) `SecretIntegers.add` packet_number_length
+    | BZeroRTT payload_and_pn_length packet_number_length ->
+      SecretIntegers.to_u32 (varint_len payload_and_pn_length) `SecretIntegers.add` packet_number_length
+    | BHandshake payload_and_pn_length packet_number_length ->
+      SecretIntegers.to_u32 (varint_len payload_and_pn_length) `SecretIntegers.add` packet_number_length
     | BRetry unused odcid odcil ->
-      1ul `U32.add` odcil
+      SecretIntegers.to_u32 (1ul `U32.add` odcil)
     end
 
+#pop-options

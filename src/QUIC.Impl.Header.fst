@@ -370,7 +370,7 @@ let read_header_body_t
     end
   ))
 
-#push-options "--z3rlimit 64 --z3cliopt smt.arith.nl=false --using_facts_from '*,-FStar.Int.Cast' --query_stats --max_fuel 9 --initial_fuel 9 --max_ifuel 9 --initial_ifuel 9 --query_stats"
+#push-options "--z3rlimit 128 --z3cliopt smt.arith.nl=false --using_facts_from '*,-FStar.Int.Cast' --query_stats --max_fuel 9 --initial_fuel 9 --max_ifuel 9 --initial_ifuel 9 --query_stats"
 
 let read_header_body_short
   (sl: LL.slice (B.trivial_preorder _) (B.trivial_preorder _))
@@ -378,8 +378,8 @@ let read_header_body_short
   (last: uint62_t { U64.v last + 1 < pow2 62 })
   (spin: BF.bitfield uint8 1)
   (key_phase: BF.bitfield uint8 1)
-  (pn_length: packet_number_length_t)
-: Tot (read_header_body_t sl cid_len last (| Short, (| (), (spin, (| (), (key_phase, (| pn_length, () |) ) |) ) |) |) )
+  (pn_length: Impl.packet_number_length_t)
+: Tot (read_header_body_t sl cid_len last (| Short, (| (), (spin, (| (), (key_phase, (| u32_of_pnl pn_length, () |) ) |) ) |) |) )
 = fun len ->
     let h0 = HST.get () in
     assert_norm (bitsum'_key_of_t first_byte (| Short, (| (), (spin, (| (), (key_phase, (| pn_length, () |) ) |) ) |) |) == (| Short, (| (), (| (), (| pn_length, () |) |) |) |) );
@@ -464,7 +464,7 @@ let read_header_body_long_initial
       let pos5 = LC.jump_filter jump_varint (payload_and_pn_length_prop pn_length) sl pos4 in
       let pn = read_packet_number last pn_length sl pos5 in
       //    assert (LL.loc_slice_from_to sl 0ul len `B.loc_includes` B.loc_buffer token);
-      let spec = Impl.BInitial (payload_and_pn_length `U64.sub` Cast.uint32_to_uint64 pn_length) pn_length token token_len in
+      let spec = Impl.BInitial payload_and_pn_length pn_length token token_len in
       Some (Impl.BLong version dcid dcid_len scid scid_len spec, pn)
     end
 
@@ -501,7 +501,7 @@ let read_header_body_long_handshake
       let payload_and_pn_length = LC.read_filter read_varint (payload_and_pn_length_prop pn_length) sl pos3 in
       let pos4 = LC.jump_filter jump_varint (payload_and_pn_length_prop pn_length) sl pos3 in
       let pn = read_packet_number last pn_length sl pos4 in
-      let spec = Impl.BHandshake (payload_and_pn_length `U64.sub` Cast.uint32_to_uint64 pn_length) pn_length in
+      let spec = Impl.BHandshake payload_and_pn_length pn_length in
       Some (Impl.BLong version dcid dcid_len scid scid_len spec, pn)
     end
 
@@ -534,7 +534,7 @@ let read_header_body_long_ZeroRTT
       let payload_and_pn_length = LC.read_filter read_varint (payload_and_pn_length_prop pn_length) sl pos3 in
       let pos4 = LC.jump_filter jump_varint (payload_and_pn_length_prop pn_length) sl pos3 in
       let pn = read_packet_number last pn_length sl pos4 in
-      let spec = Impl.BZeroRTT (payload_and_pn_length `U64.sub` Cast.uint32_to_uint64 pn_length) pn_length in
+      let spec = Impl.BZeroRTT payload_and_pn_length pn_length in
       Some (Impl.BLong version dcid dcid_len scid scid_len spec, pn)
     end
 

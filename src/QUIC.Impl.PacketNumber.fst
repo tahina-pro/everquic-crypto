@@ -1,5 +1,6 @@
 module QUIC.Impl.PacketNumber
 open QUIC.Spec.Base
+open QUIC.Impl.Base
 open LowParse.Low.Combinators
 open LowParse.Low.BoundedInt
 open LowParse.Low.Writers.Instances

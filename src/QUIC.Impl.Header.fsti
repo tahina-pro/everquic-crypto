@@ -8,6 +8,7 @@ module U32 = FStar.UInt32
 module HST = FStar.HyperStack.ST
 module S = FStar.Seq
 module U64 = FStar.UInt64
+module SecretIntegers = Lib.IntTypes
 
 module Spec = QUIC.Spec.Header
 module Impl = QUIC.Impl.Base
@@ -52,7 +53,7 @@ val header_len_correct
   (m: HS.mem)
   (pn: uint62_t)
 : Lemma
-  (U32.v (Impl.header_len h) == Spec.header_len (Impl.g_header h m pn))
+  (SecretIntegers.v (Impl.header_len h) == Spec.header_len (Impl.g_header h m pn))
 
 val write_header
   (dst: B.buffer U8.t)

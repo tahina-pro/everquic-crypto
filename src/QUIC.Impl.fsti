@@ -17,6 +17,7 @@ module ST = FStar.HyperStack.ST
 module U64 = FStar.UInt64
 module U32 = FStar.UInt32
 module U8 = FStar.UInt8
+module SecretIntegers = Lib.IntTypes
 
 open FStar.HyperStack
 open FStar.HyperStack.ST
@@ -246,8 +247,8 @@ val encrypt: #i:G.erased index -> (
       B.length plain == U32.v plain_len /\ (
       let clen = if is_retry h then 0 else U32.v plain_len + Spec.Agile.AEAD.tag_length i.aead_alg in
       (if is_retry h then U32.v plain_len == 0 else 3 <= U32.v plain_len /\ U32.v plain_len < QSpec.max_plain_length) /\
-      (has_payload_length h ==> U64.v (payload_length h) == clen) /\
-      B.length dst == U32.v (header_len h) + clen
+      (has_payload_length h ==> SecretIntegers.v (payload_length h) == clen) /\
+      B.length dst == SecretIntegers.v (header_len h) + clen
     ))
     (ensures fun h0 r h1 ->
       match r with
@@ -292,13 +293,16 @@ noeq
 type result = {
   pn: u62;
   header: header;
-  header_len: U32.t;
+  header_len: SecretIntegers.uint32;
   plain_len: n:U32.t;
   total_len: n:U32.t
 }
 
 noextract
 let max (x y: nat) = if x >= y then x else y
+
+let u32_of_su32 (x: SecretIntegers.uint32) : GTot U32.t =
+  U32.uint_to_t (SecretIntegers.v x)
 
 unfold
 let decrypt_post (i: index)
@@ -333,17 +337,17 @@ let decrypt_post (i: index)
 
       // Lengths
       r.header_len == header_len r.header /\
-      U32.v r.header_len + U32.v r.plain_len <= U32.v r.total_len /\
+      SecretIntegers.v r.header_len + U32.v r.plain_len <= U32.v r.total_len /\
       U32.v r.total_len <= B.length packet /\
-      B.(loc_includes (loc_buffer (B.gsub packet 0ul r.header_len)) (header_footprint r.header)) /\
+      B.(loc_includes (loc_buffer (B.gsub packet 0ul (u32_of_su32 r.header_len))) (header_footprint r.header)) /\
       header_live r.header h1 /\
       U32.v r.total_len <= B.length packet /\
       
       // Contents
       (
       let plain =
-        S.slice (B.as_seq h1 packet) (U32.v r.header_len)
-          (U32.v r.header_len + U32.v r.plain_len) in
+        S.slice (B.as_seq h1 packet) (SecretIntegers.v r.header_len)
+          (SecretIntegers.v r.header_len + U32.v r.plain_len) in
       let rem = B.as_seq h0 (B.gsub packet r.total_len (B.len packet `U32.sub `r.total_len)) in
       match QSpec.decrypt i.aead_alg k iv pne (U64.v prev) (U8.v cid_len) (B.as_seq h0 packet) with
       | QSpec.Success h' plain' rem' ->
