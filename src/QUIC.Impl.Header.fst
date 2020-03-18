@@ -379,7 +379,7 @@ let read_header_body_short
   (spin: BF.bitfield uint8 1)
   (key_phase: BF.bitfield uint8 1)
   (pn_length: Impl.packet_number_length_t)
-: Tot (read_header_body_t sl cid_len last (| Short, (| (), (spin, (| (), (key_phase, (| u32_of_pnl pn_length, () |) ) |) ) |) |) )
+: Tot (read_header_body_t sl cid_len last (| Short, (| (), (spin, (| (), (key_phase, (| pnl_of_spnl pn_length, () |) ) |) ) |) |) )
 = fun len ->
     let h0 = HST.get () in
     assert_norm (bitsum'_key_of_t first_byte (| Short, (| (), (spin, (| (), (key_phase, (| pn_length, () |) ) |) ) |) |) == (| Short, (| (), (| (), (| pn_length, () |) |) |) |) );

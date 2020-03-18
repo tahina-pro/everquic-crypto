@@ -154,27 +154,33 @@ let header_live_loc_not_unused_in_footprint (h: header) (m: HS.mem) : Lemma
 
 module FB = FStar.Bytes
 
-let u32_of_pnl (pnl: packet_number_length_t) : GTot Spec.packet_number_length_t =
-  U32.uint_to_t (SecretIntegers.v pnl)
+let u32_of_su32 (x: SecretIntegers.uint32) : GTot U32.t =
+  U32.uint_to_t (SecretIntegers.v x)
+
+let pnl_of_spnl (pnl: packet_number_length_t) : GTot Spec.packet_number_length_t =
+  u32_of_su32 pnl
+
+let u64_of_su64 (x: SecretIntegers.uint64) : GTot U64.t =
+  U64.uint_to_t (SecretIntegers.v x)
 
 let u62_of_su62 (x: suint62_t) : GTot uint62_t =
-  U64.uint_to_t (SecretIntegers.v x)
+  u64_of_su64 x
 
 #push-options "--z3rlimit 16"
 
 let g_header (h: header) (m: HS.mem) (packet_number: uint62_t) : GTot Spec.header =
   match h with
   | BShort spin phase cid cid_len packet_number_length ->
-    MShort spin phase (FB.hide (B.as_seq m cid)) (u32_of_pnl packet_number_length) packet_number
+    MShort spin phase (FB.hide (B.as_seq m cid)) (pnl_of_spnl packet_number_length) packet_number
   | BLong version dcid dcil scid scil spec ->
     MLong version (FB.hide (B.as_seq m dcid)) (FB.hide (B.as_seq m scid))
       begin match spec with
       | BInitial payload_and_pn_length packet_number_length token token_length ->
-        MInitial (FB.hide (B.as_seq m token)) (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (u32_of_pnl packet_number_length) packet_number
+        MInitial (FB.hide (B.as_seq m token)) (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (pnl_of_spnl packet_number_length) packet_number
       | BZeroRTT payload_and_pn_length packet_number_length ->
-        MZeroRTT (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (u32_of_pnl packet_number_length) packet_number
+        MZeroRTT (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (pnl_of_spnl packet_number_length) packet_number
       | BHandshake payload_and_pn_length packet_number_length ->
-        MHandshake (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (u32_of_pnl packet_number_length) packet_number
+        MHandshake (u62_of_su62 (SecretIntegers.to_u64 payload_and_pn_length `SecretIntegers.sub` SecretIntegers.to_u64 packet_number_length)) (pnl_of_spnl packet_number_length) packet_number
       | BRetry unused odcid odcil ->
         MRetry unused (FB.hide (B.as_seq m odcid))
       end
@@ -227,7 +233,7 @@ let varint_len
 
 module Cast = FStar.Int.Cast
 
-#push-options "--z3rlimit 32"
+#push-options "--z3rlimit 64"
 
 let header_len
   (h: header)
