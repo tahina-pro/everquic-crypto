@@ -1360,7 +1360,7 @@ val header_decrypt: i:G.erased index ->
       end
     ))
 
-#push-options "--z3rlimit 1024 --max_ifuel 4 --initial_ifuel 4"
+#push-options "--z3rlimit 2048 --max_ifuel 4 --initial_ifuel 4"
 
 #restart-solver
 
@@ -1374,7 +1374,10 @@ let header_decrypt i s packet packet_len cid_len =
   match header_decrypt_aux i s packet packet_len cid_len with
   | None -> None
   | Some ({ is_short; is_retry; pn_offset; pn_len }) ->
-    begin match HeaderI.read_header packet packet_len (FStar.Int.Cast.uint8_to_uint32 cid_len) last_pn with
+    QSpec.header_decrypt_aux_post i.aead_alg (g_hp_key h0 s) (U8.v cid_len) (B.as_seq h0 packet);
+    let h05 = ST.get () in
+    Classical.move_requires (HeaderS.putative_pn_offset_is_retry (U8.v cid_len)) (B.as_seq h05 packet);
+    begin match HeaderI.read_header packet packet_len (FStar.Int.Cast.uint8_to_uint32 cid_len) last_pn (if is_retry then 0ul else pn_offset) (not is_retry) with
     | None ->
       let h1 = ST.get () in
       let phi () : Lemma
@@ -1414,6 +1417,8 @@ let header_decrypt i s packet packet_len cid_len =
       end
 
 #pop-options
+
+#push-options "--z3rlimit 16"
 
 val decrypt_core: #i:G.erased index -> (
   let i = G.reveal i in
@@ -1463,6 +1468,8 @@ val decrypt_core: #i:G.erased index -> (
       end
     )
   )
+
+#pop-options
 
 #push-options "--z3rlimit 1024 --using_facts_from '*,-LowStar.Monotonic.Buffer.unused_in_loc_unused_in_disjoint_2'"
 

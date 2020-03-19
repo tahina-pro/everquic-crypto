@@ -51,6 +51,21 @@ val putative_pn_offset_frame
   | Some off -> putative_pn_offset cid_len x2 == Some (off <: nat)
   ))
 
+val putative_pn_offset_is_retry
+  (cid_len: nat)
+  (x: bytes)
+: Lemma
+  (requires (
+    if S.length x = 0
+    then True
+    else
+      let f = S.index x 0 in
+      let is_short = (BF.get_bitfield (U8.v f) 7 8 = 0) in
+      let is_retry = not is_short && BF.get_bitfield (U8.v f) 4 6 = 3 in
+      is_retry
+  ))
+  (ensures (None? (putative_pn_offset cid_len x)))
+
 val putative_pn_offset_correct
   (h: header {~ (is_retry h)})
   (cid_len: nat)

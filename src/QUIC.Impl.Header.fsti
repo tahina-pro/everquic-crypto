@@ -17,9 +17,14 @@ val read_header
   (packet_len: U32.t { let v = U32.v packet_len in v == B.length packet })
   (cid_len: U32.t { U32.v cid_len <= 20 } )
   (last: uint62_t { U64.v last + 1 < pow2 62 })
+  (putative_pn_offset32: U32.t)
+  (has_pn: bool)
 : HST.Stack (option (Impl.header & uint62_t & U32.t))
   (requires (fun h ->
-    B.live h packet
+    let ppno = putative_pn_offset (U32.v cid_len) (B.as_seq h packet) in
+    B.live h packet /\
+    (has_pn == Some? ppno) /\
+    (has_pn ==> (let Some off = ppno in off + 4 <= B.length packet /\ U32.v putative_pn_offset32 == off))
   ))
   (ensures (fun h res h' ->
     B.modifies B.loc_none h h' /\

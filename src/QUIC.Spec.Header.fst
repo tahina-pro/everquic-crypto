@@ -835,6 +835,13 @@ let putative_pn_offset_frame
 
 #pop-options
 
+let putative_pn_offset_is_retry
+  cid_len x
+= parser_kind_prop_equiv parse_u8_kind parse_u8;
+  if S.length x = 0
+  then ()
+  else parse_u8_spec' x
+
 val format_header_is_initial: h: header -> Lemma
   ((MLong? h /\ MInitial? (MLong?.spec h))  <==> (
     BF.get_bitfield (U8.v (S.index (format_header h) 0)) 7 8 == 1 /\

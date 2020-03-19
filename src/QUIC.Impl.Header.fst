@@ -564,10 +564,183 @@ let read_header_body
 
 #restart-solver
 
+assume
+val header_without_pn
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+: Tot Type0
+
+assume
+val header_without_pn_kind
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+: Tot (k: LL.parser_kind {
+    k.LL.parser_kind_subkind == Some LL.ParserStrong /\
+    Some? k.parser_kind_high /\
+    Some?.v k.parser_kind_high + 4 <= U32.v LL.validator_max_length
+  }) 
+
+assume
+val parse_header_without_pn
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+: Tot (parser (header_without_pn_kind short_dcid_len last) (header_without_pn short_dcid_len last))
+
+assume
+val validate_header_without_pn
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+: Tot (LL.validator (parse_header_without_pn short_dcid_len last))
+
+assume
+val header_without_pn_pn_length
+  (#short_dcid_len: short_dcid_len_t)
+  (#last: last_packet_number_t)
+  (h: header_without_pn short_dcid_len last)
+: GTot (option packet_number_length_t)
+
+module HS = FStar.HyperStack
+
+assume
+val validate_header_without_pn_elim
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+  (h: HS.mem)
+  (#rrel #rel: _)
+  (sl: LL.slice rrel rel)
+  (pos: U32.t)
+  (pos' : U32.t)
+: Lemma
+  (requires (
+    let p = parse_header_without_pn short_dcid_len last in
+    LL.valid p h sl pos /\
+    begin
+      let pos1 = LL.get_valid_pos p h sl pos in
+      match header_without_pn_pn_length (LL.contents p h sl pos) with
+      | None -> pos' == pos1
+      | Some pn_length -> LL.valid_pos (parse_packet_number last pn_length) h sl pos1 pos'
+    end
+  ))
+  (ensures (
+    let p = parse_header_without_pn short_dcid_len last in
+    let lp = lp_parse_header short_dcid_len last in
+    LL.valid p h sl pos /\
+    LL.valid_pos lp h sl pos pos' /\
+    begin
+      let x = LL.contents lp h sl pos in
+      let hpl = header_without_pn_pn_length (LL.contents p h sl pos) in
+      if is_retry x
+      then hpl == None
+      else hpl == Some (pn_length x)
+    end
+  ))
+
+assume
+val validate_header_without_pn_intro
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+  (h: HS.mem)
+  (#rrel #rel: _)
+  (sl: LL.slice rrel rel)
+  (pos: U32.t)
+: Lemma
+  (requires (
+    LL.valid (lp_parse_header short_dcid_len last) h sl pos
+  ))
+  (ensures (
+    let p = parse_header_without_pn short_dcid_len last in
+    LL.valid p h sl pos
+  ))
+
+let validate_header_without_pn_correct_aux
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+  (h: HS.mem)
+  (#rrel #rel: _)
+  (sl: LL.slice rrel rel)
+  (pos: U32.t)
+: Lemma
+  (requires (
+    LL.valid (parse_header_without_pn short_dcid_len last) h sl pos /\
+    begin match putative_pn_offset (U32.v short_dcid_len) (LL.bytes_of_slice_from h sl pos) with
+    | None -> True
+    | Some pn_offset -> pn_offset + 4 <= U32.v sl.LL.len - U32.v pos
+    end
+  ))
+  (ensures (
+    let p = parse_header_without_pn short_dcid_len last in
+    let lp = lp_parse_header short_dcid_len last in
+    LL.valid p h sl pos /\
+    LL.valid lp h sl pos /\
+    begin
+      let pos1 = LL.get_valid_pos p h sl pos in
+      let pos' = LL.get_valid_pos lp h sl pos in
+      match putative_pn_offset (U32.v short_dcid_len) (LL.bytes_of_slice_from h sl pos), header_without_pn_pn_length (LL.contents p h sl pos) with
+      | None, None -> pos1 == pos'
+      | Some pn_offset, Some pn_length ->
+        pn_offset + 4 <= U32.v sl.LL.len - U32.v pos /\
+        U32.v pos1 == U32.v pos + pn_offset /\
+        U32.v pos' == U32.v pos1 + U32.v pn_length
+      | _ -> False
+    end
+  ))
+= admit ()
+
+assume
+val header_without_pn_pn_length32
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+  (#rrel #rel: _)
+  (sl: LL.slice rrel rel)
+  (pos: U32.t)
+: HST.Stack packet_number_length_t
+  (requires (fun h ->
+    let p = parse_header_without_pn short_dcid_len last in
+    LL.valid p h sl pos /\
+    Some? (header_without_pn_pn_length (LL.contents p h sl pos))
+  ))
+  (ensures (fun h res h' ->
+    B.modifies B.loc_none h h' /\
+    header_without_pn_pn_length (LL.contents (parse_header_without_pn short_dcid_len last) h sl pos) == Some res
+  ))
+
+let validate_header'
+  (short_dcid_len: short_dcid_len_t)
+  (last: last_packet_number_t)
+  (putative_pn_offset32: U32.t)
+  (has_pn: bool)
+  (#rrel #rel: _)
+  (sl: LL.slice rrel rel)
+: HST.Stack U32.t
+  (requires (fun h ->
+    let k = parse_header_kind' short_dcid_len last in
+    let ppno = putative_pn_offset (U32.v short_dcid_len) (LL.bytes_of_slice_from h sl 0ul) in
+    has_pn == Some? ppno /\
+    LL.live_slice h sl /\
+    (has_pn ==> (let Some off = ppno in (off + 4 <= U32.v sl.LL.len)))
+  ))
+  (ensures (fun h res h' ->
+    B.modifies B.loc_none h h' /\ (
+    if U32.v res <= U32.v LL.validator_max_length
+    then
+      LL.valid_pos (lp_parse_header short_dcid_len last) h sl 0ul res
+    else
+      (~ (LL.valid (lp_parse_header short_dcid_len last) h sl 0ul))
+  )))
+= let h0 = HST.get () in
+  let pos1 = LL.validate_bounded_strong_prefix (validate_header_without_pn short_dcid_len last) sl 0ul in
+  Classical.move_requires (validate_header_without_pn_intro short_dcid_len last h0 sl) 0ul;
+  Classical.move_requires (validate_header_without_pn_correct_aux short_dcid_len last h0 sl) 0ul;
+  if pos1 `U32.gt` LL.validator_max_length || not has_pn
+  then
+    pos1
+  else
+    pos1 `U32.add` header_without_pn_pn_length32 short_dcid_len last sl 0ul
+
 #push-options "--z3rlimit 512 --z3cliopt smt.arith.nl=false --query_stats"
 
 let read_header
-  packet packet_len cid_len last
+  packet packet_len cid_len last putative_pn_offset32 has_pn
 =
   let h0 = HST.get () in
   let sl = LL.make_slice packet packet_len in
@@ -579,7 +752,8 @@ let read_header
     Some?.v k.parser_kind_high <= U32.v LL.validator_max_length /\
     k.parser_kind_subkind == Some ParserStrong
   );
-  let len = LL.validate_bounded_strong_prefix (validate_header cid_len last) sl 0ul in
+  assert (LL.bytes_of_slice_from h0 sl 0ul `S.equal` B.as_seq h0 packet);
+  let len = validate_header' cid_len last putative_pn_offset32 has_pn sl in // LL.validate_bounded_strong_prefix (validate_header cid_len last) sl 0ul in
   if len `U32.gt` LL.validator_max_length
   then None
   else begin
@@ -1285,7 +1459,7 @@ let pn_offset'
       1ul `U32.add` odcil
     end
 
-#push-options "--z3rlimit 64 --max_ifuel 2 --initial_ifuel 2"
+#push-options "--z3rlimit 128 --max_ifuel 2 --initial_ifuel 2"
 
 #restart-solver
 

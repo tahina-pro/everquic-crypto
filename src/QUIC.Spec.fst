@@ -353,11 +353,14 @@ let header_decrypt_aux_post
     r.is_short == (BF.get_bitfield (U8.v f') 7 8 = 0) /\
     r.is_retry == (not r.is_short && (BF.get_bitfield (U8.v f') 4 6 = 3)) /\ (
     if r.is_retry
-    then r.packet == packet
+    then
+      None? (putative_pn_offset cid_len packet) /\
+      r.packet == packet
     else
       Some? (putative_pn_offset cid_len packet) /\
       putative_pn_offset cid_len r.packet == putative_pn_offset cid_len packet /\ (
       let Some pn_offset = putative_pn_offset cid_len packet in
+      r.pn_offset == pn_offset /\
       r.pn_len == BF.get_bitfield (U8.v f') 0 2 /\
       S.slice r.packet (r.pn_offset + r.pn_len + 1) (S.length r.packet) `S.equal` S.slice packet (r.pn_offset + r.pn_len + 1) (S.length packet) /\
       True
@@ -367,7 +370,7 @@ let header_decrypt_aux_post
   let is_short = (BF.get_bitfield (U8.v f) 7 8 = 0) in
   let is_retry = not is_short && BF.get_bitfield (U8.v f) 4 6 = 3 in
   if is_retry
-  then ()
+  then putative_pn_offset_is_retry cid_len packet
   else begin
     let Some pn_offset = putative_pn_offset cid_len packet in
     let sample_offset = pn_offset + 4 in
