@@ -609,7 +609,6 @@ val validate_header_without_pn_elim
   (#rrel #rel: _)
   (sl: LL.slice rrel rel)
   (pos: U32.t)
-  (pos' : U32.t)
 : Lemma
   (requires (
     let p = parse_header_without_pn short_dcid_len last in
@@ -617,21 +616,23 @@ val validate_header_without_pn_elim
     begin
       let pos1 = LL.get_valid_pos p h sl pos in
       match header_without_pn_pn_length (LL.contents p h sl pos) with
-      | None -> pos' == pos1
-      | Some pn_length -> LL.valid_pos (parse_packet_number last pn_length) h sl pos1 pos'
+      | None -> True
+      | Some pn_length -> LL.valid (parse_packet_number last pn_length) h sl pos1
     end
   ))
   (ensures (
     let p = parse_header_without_pn short_dcid_len last in
     let lp = lp_parse_header short_dcid_len last in
     LL.valid p h sl pos /\
-    LL.valid_pos lp h sl pos pos' /\
+    LL.valid lp h sl pos /\
     begin
+      let pos1 = LL.get_valid_pos p h sl pos in
+      let pos' = LL.get_valid_pos lp h sl pos in
       let x = LL.contents lp h sl pos in
       let hpl = header_without_pn_pn_length (LL.contents p h sl pos) in
       if is_retry x
-      then hpl == None
-      else hpl == Some (pn_length x)
+      then hpl == None /\ pos' == pos1
+      else hpl == Some (pn_length x) /\ U32.v pos' == U32.v pos1 + U32.v (pn_length x)
     end
   ))
 
@@ -651,6 +652,8 @@ val validate_header_without_pn_intro
     let p = parse_header_without_pn short_dcid_len last in
     LL.valid p h sl pos
   ))
+
+#push-options "--z3rlimit 64"
 
 let validate_header_without_pn_correct_aux
   (short_dcid_len: short_dcid_len_t)
@@ -684,7 +687,22 @@ let validate_header_without_pn_correct_aux
       | _ -> False
     end
   ))
-= admit ()
+= let p = parse_header_without_pn short_dcid_len last in
+  let lp = lp_parse_header short_dcid_len last in
+  let pos1 = LL.get_valid_pos p h sl pos in
+  let bytes = LL.bytes_of_slice_from h sl pos in
+  match header_without_pn_pn_length (LL.contents p h sl pos) with
+  | None ->
+    validate_header_without_pn_elim short_dcid_len last h sl pos;
+    let x = LL.contents lp h sl pos in
+    LL.valid_facts lp h sl pos;
+    lemma_header_parsing_post (U32.v short_dcid_len) (U64.v last) bytes;
+    format_header_is_retry x;
+    putative_pn_offset_is_retry (U32.v short_dcid_len) bytes
+  | Some pn_length ->
+    assume False
+
+#pop-options
 
 assume
 val header_without_pn_pn_length32
